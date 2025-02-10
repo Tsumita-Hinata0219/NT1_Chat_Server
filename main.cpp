@@ -1,181 +1,117 @@
+/* 簡易チャットプログラム */
+
 #define _WINSOCK_DEPRECATED_NO_WARNINGS
-#define _CRT_SECURE_NO_WARNINGS
 
-#include <WinSock2.h>
-#include <WS2tcpip.h>
+#include <winsock2.h> /* WinSockのヘッダファイル */
 #include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
 
-#pragma comment(lib, "WSock32.lib")
-#pragma comment(lib, "Ws2_32.lib")
+#pragma comment ( lib, "WSock32.lib" ) /* WinSockライブラリの指定 */
 
-
-// ポート番号を設定する
-static unsigned short Get_PortNumber()
+// チャットプログラム　サーバー関数
+void ChatServer(void)
 {
-	unsigned short portNumber = 0;
+    SOCKET listen_s;
+    SOCKET s;
+    SOCKADDR_IN saddr;
+    SOCKADDR_IN from;
+    int fromlen;
+    u_short uport = 8080;
 
-	while (1) { // 無限ループで正しい入力を待つ
-		// プロンプトの表示
-		printf("ポート番号の設定 (0 ～ 65535): ");
+    fflush(stdin);
 
-		// 入力取得とエラーチェック
-		if (scanf_s("%hu", &portNumber) == 1) {
-			return portNumber; // 正常な入力なら返す
-		}
-		else {
-			// 入力エラー時の処理
-			printf("無効な入力です。もう一度入力してください。\n");
+    // リスンソケットをオープン
+    listen_s = socket(AF_INET, SOCK_STREAM, 0);
+    if (listen_s == INVALID_SOCKET) {
+        printf("リスンソケットオープンエラー");
+        WSACleanup();
+        return;
+    }
 
-			// 入力バッファのクリア
-			while (getchar() != '\n');
-		}
-	}
+    printf("リスンソケットをオープンしました\n");
+
+    // ソケットに名前を付ける
+    memset(&saddr, 0, sizeof(SOCKADDR_IN));
+    saddr.sin_family = AF_INET;
+    saddr.sin_port = htons(uport);
+    saddr.sin_addr.s_addr = INADDR_ANY;
+
+    if (bind(listen_s, (struct sockaddr*)&saddr, sizeof(saddr)) == SOCKET_ERROR) {
+        printf("bindエラー");
+        closesocket(listen_s);
+        return;
+    }
+    printf("bind成功です\n");
+
+    // クライアントからの接続待ちの状態にする
+    if (listen(listen_s, SOMAXCONN) == SOCKET_ERROR) {
+        printf("listenエラー\n");
+        closesocket(listen_s);
+        return;
+    }
+
+    printf("listen成功\n");
+
+    // 接続待機する
+    printf("acceptで待機します\n");
+
+    fromlen = (int)sizeof(from);
+
+    s = accept(listen_s, (struct sockaddr*)&from, &fromlen);
+    if (s == INVALID_SOCKET) {
+        printf("acceptエラー\n");
+        closesocket(listen_s);
+        return;
+    }
+
+    printf("%sが接続してきました\n", inet_ntoa(from.sin_addr));
+    printf("accepet関数成功\n");
+
+    //リスンソケットはもう不要
+    closesocket(listen_s);
+
+    // 会話開始
+    printf("会話開始\n");
+
+    while (1) {
+        char recvBuf[1024];
+        int recvLen = recv(s, recvBuf, sizeof(recvBuf) - 1, 0);
+        if (recvLen == SOCKET_ERROR) {
+            printf("データ受信エラー\n");
+            break;
+        }
+        recvBuf[recvLen] = '\0';
+        printf("受信: %s\n", recvBuf);
+
+        printf("送信: ");
+        char sendBuf[1024];
+        scanf_s("%s", sendBuf, (unsigned)_countof(sendBuf));
+        send(s, sendBuf, (int)strlen(sendBuf), 0);
+    }
+
+    // ソケットを閉じる
+    closesocket(s);
 }
 
-// ソケットを作成する関数
-static SOCKET CreateSocket() 
+// チャットプログラム メイン関数
+int main(void)
 {
-	// ソケットの作成
-	SOCKET mySocket = socket(AF_INET, SOCK_STREAM, 0);
-	if (mySocket == INVALID_SOCKET) {
-		printf("ソケット作成に失敗しました。エラーコード: %d\n", WSAGetLastError());
-		return INVALID_SOCKET;
-	}
-	printf("socket作成 成功\n");
-	return mySocket;
+    WSADATA wsaData;
+
+    // WinSockの初期化
+    if (WSAStartup(MAKEWORD(1, 1), &wsaData) != 0) {
+        // 初期化エラー
+        printf("WinSockの初期化に失敗しました\n");
+        return 1;
+    }
+
+    // サーバーとして起動
+    ChatServer();
+
+    // WinSockの終了処理
+    WSACleanup();
+
+    return 0;
 }
-
-// サーバーアドレスを設定する関数
-static void SetServerAddress(sockaddr_in& server_addr, unsigned short portNumber) 
-{
-	// ソケットに名前を付ける
-	memset(&server_addr, 0, sizeof(sockaddr_in));
-	server_addr.sin_family = AF_INET;
-	server_addr.sin_port = htons(portNumber);
-	server_addr.sin_addr.s_addr = INADDR_ANY;
-}
-
-// ソケットをバインドする関数
-static bool BindSocket(SOCKET sockfd, const sockaddr_in& server_addr) 
-{
-	if (bind(sockfd, (struct sockaddr*)&server_addr, sizeof(server_addr)) == SOCKET_ERROR) {
-		printf("バインドに失敗しました。エラーコード: %d\n", WSAGetLastError());
-		return false;
-	}
-	printf("bind 成功\n");
-	return true;
-}
-
-// ソケットをリッスン状態にする関数
-static bool ListenSocket(SOCKET sockfd) 
-{
-	if (listen(sockfd, SOMAXCONN) == SOCKET_ERROR) {
-		printf("リッスンに失敗しました。エラーコード: %d\n", WSAGetLastError());
-		return false;
-	}
-	printf("listen 成功\n");
-	return true;
-}
-
-// ソケットに名前を付けて接続
-static bool BindAndConnectSocket(SOCKET sockfd, unsigned short portNumber) 
-{
-	sockaddr_in server_addr{};
-
-	// サーバーアドレスを設定する
-	SetServerAddress(server_addr, portNumber);
-
-	// ソケットをバインド
-	if (!BindSocket(sockfd, server_addr)) {
-		return false;
-	}
-
-	if (!ListenSocket(sockfd)) {
-		return false;
-	}
-
-	return true;
-}
-
-// クライアントからの接続を受け入れる
-static SOCKET AcceptClientConnection(SOCKET listenSock)
-{
-	sockaddr_in client_addr{};
-	int client_addr_size = sizeof(client_addr);
-
-	// クライアントからの接続を受け入れる
-	SOCKET clientSock = accept(listenSock, (struct sockaddr*)&client_addr, &client_addr_size);
-	if (clientSock == INVALID_SOCKET) {
-		printf("クライアントの接続受け入れに失敗しました。エラーコード: %d\n", WSAGetLastError());
-		return INVALID_SOCKET;
-	}
-	char client_ip[INET_ADDRSTRLEN];
-	inet_ntop(AF_INET, &client_addr.sin_addr, client_ip, INET_ADDRSTRLEN);
-	printf("クライアント %s が接続してきました\n", client_ip);
-	printf("accepet関数成功\n");
-	return clientSock;
-}
-
-
-
-int main()
-{
-	/* WinSockの初期化 */
-	WSADATA wsaData;
-	if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) {
-		printf("WSAStartupに失敗しました。エラーコード: %d\n", WSAGetLastError());
-		return 1;
-	}
-
-	/* ソケット作成 */
-	SOCKET sockfd = CreateSocket();
-
-	// ポートは固定
-	unsigned short portNumber = 8080;
-	if (!BindAndConnectSocket(sockfd, portNumber)) {
-		closesocket(sockfd);
-		WSACleanup();
-		return 1;
-	}
-
-	printf("サーバーがポート %d でリッスンを開始しました。\n", portNumber);
-
-	while (1) {
-		SOCKET clientSock = AcceptClientConnection(sockfd);
-		if (clientSock == INVALID_SOCKET) {
-			continue;
-		}
-
-		while (1) {
-			int nRcv = 0;
-			char szBuf[1024]{};
-
-			nRcv = recv(clientSock, szBuf, sizeof(szBuf) - 1, 0);
-			if (nRcv == SOCKET_ERROR) {
-				printf("データ受信に失敗しました。エラーコード: %d\n", WSAGetLastError());
-				closesocket(clientSock);
-				break;
-			}
-			else if (nRcv == 0) {
-				printf("クライアントが接続を閉じました。\n");
-				closesocket(clientSock);
-				break;
-			}
-
-			szBuf[nRcv] = '\0';
-			printf("受信データ : %s\n", szBuf);
-			printf("送信データ : ");
-
-			scanf_s("%s", szBuf, 1024);
-			fflush(stdin);
-
-			send(clientSock, szBuf, (int)strlen(szBuf), 0);
-		}
-	}
-
-	closesocket(sockfd);
-	WSACleanup();
-	return 0;
-}
-
-
+//eof
